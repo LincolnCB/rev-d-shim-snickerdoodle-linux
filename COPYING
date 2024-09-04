@@ -16,3 +16,7 @@ In addition, other licenses may also apply. Please see:
 	Documentation/process/license-rules.rst
 
 for more details.
+
+
+IMPORTANT: The files stored under firmware/ti-connectivity are licensed under TI-TSPA.
+The license files are stored there as well, please read them!
