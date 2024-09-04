@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Xilinx USB peripheral controller driver
  *
@@ -8,12 +9,6 @@
  *
  * Some parts of this driver code is based on the driver for at91-series
  * USB peripheral controller (at91_udc.c).
- *
- * This program is free software; you can redistribute it
- * and/or modify it under the terms of the GNU General Public
- * License as published by the Free Software Foundation;
- * either version 2 of the License, or (at your option) any
- * later version.
  */
 
 #include <linux/clk.h>
@@ -637,7 +632,7 @@ top:
 		dev_dbg(udc->dev, "read %s, %d bytes%s req %p %d/%d\n",
 			ep->ep_usb.name, count, is_short ? "/S" : "", req,
 			req->usb_req.actual, req->usb_req.length);
-		bufferspace -= count;
+
 		/* Completion */
 		if ((req->usb_req.actual == req->usb_req.length) || is_short) {
 			if (udc->dma_enabled && req->usb_req.length)
@@ -1086,7 +1081,7 @@ static int xudc_ep_queue(struct usb_ep *_ep, struct usb_request *_req,
 	unsigned long flags;
 
 	if (!ep->desc) {
-		dev_dbg(udc->dev, "%s:queing request to disabled %s\n",
+		dev_dbg(udc->dev, "%s: queuing request to disabled %s\n",
 			__func__, ep->name);
 		return -ESHUTDOWN;
 	}
@@ -2081,10 +2076,8 @@ static int xudc_probe(struct platform_device *pdev)
 		return PTR_ERR(udc->addr);
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "unable to get irq\n");
+	if (irq < 0)
 		return irq;
-	}
 	ret = devm_request_irq(&pdev->dev, irq, xudc_irq, 0,
 			       dev_name(&pdev->dev), udc);
 	if (ret < 0) {
@@ -2181,6 +2174,61 @@ static int xudc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM_SLEEP
+static int xudc_suspend(struct device *dev)
+{
+	struct xusb_udc *udc;
+	u32 crtlreg;
+	unsigned long flags;
+
+	udc = dev_get_drvdata(dev);
+
+	spin_lock_irqsave(&udc->lock, flags);
+
+	crtlreg = udc->read_fn(udc->addr + XUSB_CONTROL_OFFSET);
+	crtlreg &= ~XUSB_CONTROL_USB_READY_MASK;
+
+	udc->write_fn(udc->addr, XUSB_CONTROL_OFFSET, crtlreg);
+
+	spin_unlock_irqrestore(&udc->lock, flags);
+	if (udc->driver && udc->driver->disconnect)
+		udc->driver->disconnect(&udc->gadget);
+
+	clk_disable(udc->clk);
+
+	return 0;
+}
+
+static int xudc_resume(struct device *dev)
+{
+	struct xusb_udc *udc;
+	u32 crtlreg;
+	unsigned long flags;
+	int ret;
+
+	udc = dev_get_drvdata(dev);
+
+	ret = clk_enable(udc->clk);
+	if (ret < 0)
+		return ret;
+
+	spin_lock_irqsave(&udc->lock, flags);
+
+	crtlreg = udc->read_fn(udc->addr + XUSB_CONTROL_OFFSET);
+	crtlreg |= XUSB_CONTROL_USB_READY_MASK;
+
+	udc->write_fn(udc->addr, XUSB_CONTROL_OFFSET, crtlreg);
+
+	spin_unlock_irqrestore(&udc->lock, flags);
+
+	return 0;
+}
+#endif /* CONFIG_PM_SLEEP */
+
+static const struct dev_pm_ops xudc_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(xudc_suspend, xudc_resume)
+};
+
 /* Match table for of_platform binding */
 static const struct of_device_id usb_of_match[] = {
 	{ .compatible = "xlnx,usb2-device-4.00.a", },
@@ -2192,6 +2240,7 @@ static struct platform_driver xudc_driver = {
 	.driver = {
 		.name = driver_name,
 		.of_match_table = usb_of_match,
+		.pm	= &xudc_pm_ops,
 	},
 	.probe = xudc_probe,
 	.remove = xudc_remove,

@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * AD7785/AD7792/AD7793/AD7794/AD7795 SPI ADC driver
  *
  * Copyright 2011-2012 Analog Devices Inc.
- *
- * Licensed under the GPL-2.
  */
 
 #include <linux/interrupt.h>
@@ -17,7 +16,6 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/module.h>
-#include <linux/of.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -142,18 +140,6 @@
 #define AD7793_FLAG_HAS_GAIN		BIT(4)
 #define AD7793_FLAG_HAS_BUFFER		BIT(5)
 
-static struct ad7793_platform_data ad7793_default_pdata = {
-	.clock_src = AD7793_CLK_SRC_INT,
-	.burnout_current = false,
-	.boost_enable = false,
-	.buffered = true,
-	.unipolar = true,
-	.refsel = AD7793_REFSEL_INTERNAL,
-	.bias_voltage = AD7793_BIAS_VOLTAGE_DISABLED,
-	.exitation_current = AD7793_IX_DISABLED,
-	.current_source_direction = AD7793_IEXEC1_IOUT1_IEXEC2_IOUT2
-};
-
 struct ad7793_chip_info {
 	unsigned int id;
 	const struct iio_chan_spec *channels;
@@ -193,8 +179,7 @@ static struct ad7793_state *ad_sigma_delta_to_ad7793(struct ad_sigma_delta *sd)
 	return container_of(sd, struct ad7793_state, sd);
 }
 
-static int ad7793_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
-	unsigned int channel)
+static int ad7793_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
 {
 	struct ad7793_state *st = ad_sigma_delta_to_ad7793(sd);
 
@@ -280,12 +265,7 @@ static int ad7793_setup(struct iio_dev *indio_dev,
 		return ret;
 
 	/* reset the serial interface */
-<<<<<<< HEAD
-	ret = -1;
-	ret = spi_write(st->sd.spi, (u8 *)&ret, sizeof(ret));
-=======
 	ret = ad_sd_reset(&st->sd, 32);
->>>>>>> 807fdad49dd7b39688d91c60925994956cfafef4
 	if (ret < 0)
 		goto out;
 	usleep_range(500, 2000); /* Wait for at least 500us */
@@ -328,7 +308,7 @@ static int ad7793_setup(struct iio_dev *indio_dev,
 	if (ret)
 		goto out;
 
-	ret = ad7793_set_channel(&st->sd, 0, 0);
+	ret = ad7793_set_channel(&st->sd, 0);
 	if (ret)
 		goto out;
 
@@ -367,55 +347,6 @@ static const u16 ad7793_sample_freq_avail[16] = {0, 470, 242, 123, 62, 50, 39,
 static const u16 ad7797_sample_freq_avail[16] = {0, 0, 0, 123, 62, 50, 0,
 					33, 0, 17, 16, 12, 10, 8, 6, 4};
 
-static ssize_t ad7793_read_frequency(struct device *dev,
-		struct device_attribute *attr,
-		char *buf)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct ad7793_state *st = iio_priv(indio_dev);
-
-	return sprintf(buf, "%d\n",
-	       st->chip_info->sample_freq_avail[AD7793_MODE_RATE(st->mode)]);
-}
-
-static ssize_t ad7793_write_frequency(struct device *dev,
-		struct device_attribute *attr,
-		const char *buf,
-		size_t len)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct ad7793_state *st = iio_priv(indio_dev);
-	long lval;
-	int i, ret;
-
-	ret = kstrtol(buf, 10, &lval);
-	if (ret)
-		return ret;
-
-	if (lval == 0)
-		return -EINVAL;
-
-	for (i = 0; i < 16; i++)
-		if (lval == st->chip_info->sample_freq_avail[i])
-			break;
-	if (i == 16)
-		return -EINVAL;
-
-	ret = iio_device_claim_direct_mode(indio_dev);
-	if (ret)
-		return ret;
-	st->mode &= ~AD7793_MODE_RATE(-1);
-	st->mode |= AD7793_MODE_RATE(i);
-	ad_sd_write_reg(&st->sd, AD7793_REG_MODE, sizeof(st->mode), st->mode);
-	iio_device_release_direct_mode(indio_dev);
-
-	return len;
-}
-
-static IIO_DEV_ATTR_SAMP_FREQ(S_IWUSR | S_IRUGO,
-		ad7793_read_frequency,
-		ad7793_write_frequency);
-
 static IIO_CONST_ATTR_SAMP_FREQ_AVAIL(
 	"470 242 123 62 50 39 33 19 17 16 12 10 8 6 4");
 
@@ -443,7 +374,6 @@ static IIO_DEVICE_ATTR_NAMED(in_m_in_scale_available,
 		ad7793_show_scale_available, NULL, 0);
 
 static struct attribute *ad7793_attributes[] = {
-	&iio_dev_attr_sampling_frequency.dev_attr.attr,
 	&iio_const_attr_sampling_frequency_available.dev_attr.attr,
 	&iio_dev_attr_in_m_in_scale_available.dev_attr.attr,
 	NULL
@@ -454,7 +384,6 @@ static const struct attribute_group ad7793_attribute_group = {
 };
 
 static struct attribute *ad7797_attributes[] = {
-	&iio_dev_attr_sampling_frequency.dev_attr.attr,
 	&iio_const_attr_sampling_frequency_available_ad7797.dev_attr.attr,
 	NULL
 };
@@ -524,6 +453,10 @@ static int ad7793_read_raw(struct iio_dev *indio_dev,
 			*val -= offset;
 		}
 		return IIO_VAL_INT;
+	case IIO_CHAN_INFO_SAMP_FREQ:
+		*val = st->chip_info
+			       ->sample_freq_avail[AD7793_MODE_RATE(st->mode)];
+		return IIO_VAL_INT;
 	}
 	return -EINVAL;
 }
@@ -561,6 +494,26 @@ static int ad7793_write_raw(struct iio_dev *indio_dev,
 				break;
 			}
 		break;
+	case IIO_CHAN_INFO_SAMP_FREQ:
+		if (!val) {
+			ret = -EINVAL;
+			break;
+		}
+
+		for (i = 0; i < 16; i++)
+			if (val == st->chip_info->sample_freq_avail[i])
+				break;
+
+		if (i == 16) {
+			ret = -EINVAL;
+			break;
+		}
+
+		st->mode &= ~AD7793_MODE_RATE(-1);
+		st->mode |= AD7793_MODE_RATE(i);
+		ad_sd_write_reg(&st->sd, AD7793_REG_MODE, sizeof(st->mode),
+				st->mode);
+		break;
 	default:
 		ret = -EINVAL;
 	}
@@ -582,7 +535,6 @@ static const struct iio_info ad7793_info = {
 	.write_raw_get_fmt = &ad7793_write_raw_get_fmt,
 	.attrs = &ad7793_attribute_group,
 	.validate_trigger = ad_sd_validate_trigger,
-	.driver_module = THIS_MODULE,
 };
 
 static const struct iio_info ad7797_info = {
@@ -591,7 +543,6 @@ static const struct iio_info ad7797_info = {
 	.write_raw_get_fmt = &ad7793_write_raw_get_fmt,
 	.attrs = &ad7793_attribute_group,
 	.validate_trigger = ad_sd_validate_trigger,
-	.driver_module = THIS_MODULE,
 };
 
 #define DECLARE_AD7793_CHANNELS(_name, _b, _sb, _s) \
@@ -750,64 +701,16 @@ static const struct ad7793_chip_info ad7793_chip_info_tbl[] = {
 	},
 };
 
-#ifdef CONFIG_OF
-static struct ad7793_platform_data *ad7793_parse_dt(struct device *dev)
-{
-	struct device_node *np = dev->of_node;
-	struct ad7793_platform_data *pdata;
-	u32 tmp;
-
-	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
-	if (!pdata) {
-		dev_err(dev, "could not allocate memory for platform data\n");
-		return NULL;
-	}
-
-	tmp = AD7793_CLK_SRC_INT;
-	of_property_read_u32(np, "adi,clock-source", &tmp);
-	pdata->clock_src = tmp;
-	pdata->burnout_current = of_property_read_bool(np, "adi,burnout-current-enable");
-	pdata->boost_enable = of_property_read_bool(np, "adi,boost-enable");
-	pdata->buffered = of_property_read_bool(np, "adi,buffered-mode-enable");
-	pdata->unipolar = of_property_read_bool(np, "adi,unipolar-mode-enable");
-	tmp = AD7793_REFSEL_INTERNAL;
-	of_property_read_u32(np, "adi,reference-select", &tmp);
-	pdata->refsel = tmp;
-	tmp = AD7793_BIAS_VOLTAGE_DISABLED;
-	of_property_read_u32(np, "adi,bias-voltage", &tmp);
-	pdata->bias_voltage = tmp;
-	tmp = AD7793_IX_DISABLED;
-	of_property_read_u32(np, "adi,exitation-current", &tmp);
-	pdata->exitation_current = tmp;
-	tmp = AD7793_IEXEC1_IOUT1_IEXEC2_IOUT2;
-	of_property_read_u32(np, "adi,current-source-direction", &tmp);
-	pdata->current_source_direction = tmp;
-	
-	return pdata;
-}
-#else
-static
-struct ad7793_platform_data *ad7793_parse_dt(struct device *dev)
-{
-	return NULL;
-}
-#endif
-
 static int ad7793_probe(struct spi_device *spi)
 {
-	const struct ad7793_platform_data *pdata;
+	const struct ad7793_platform_data *pdata = spi->dev.platform_data;
 	struct ad7793_state *st;
 	struct iio_dev *indio_dev;
 	int ret, vref_mv = 0;
-	
-	if (spi->dev.of_node)
-		pdata = ad7793_parse_dt(&spi->dev);
-	else
-		pdata = spi->dev.platform_data;
 
 	if (!pdata) {
-		dev_err(&spi->dev, "no platform data? using default\n");
-		pdata = &ad7793_default_pdata;
+		dev_err(&spi->dev, "no platform data?\n");
+		return -ENODEV;
 	}
 
 	if (!spi->irq) {
@@ -918,6 +821,6 @@ static struct spi_driver ad7793_driver = {
 };
 module_spi_driver(ad7793_driver);
 
-MODULE_AUTHOR("Michael Hennerich <hennerich@blackfin.uclinux.org>");
+MODULE_AUTHOR("Michael Hennerich <michael.hennerich@analog.com>");
 MODULE_DESCRIPTION("Analog Devices AD7793 and similar ADCs");
 MODULE_LICENSE("GPL v2");

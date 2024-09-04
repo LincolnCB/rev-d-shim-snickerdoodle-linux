@@ -31,4 +31,4 @@ struct ipt_ECN_info {
 	} proto;
 };
 
-#endif /* IPT_ECN_H */
+#endif /* _IPT_ECN_TARGET_H */

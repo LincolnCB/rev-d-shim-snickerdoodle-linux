@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /**
  * gadget_hibernation.c - DesignWare USB3 DRD Controller gadget hibernation file
  *
@@ -120,8 +121,7 @@ static int restart_ep0_trans(struct dwc3 *dwc, int epnum)
 		return ret;
 	}
 
-	dep->flags |= DWC3_EP_BUSY;
-	dep->resource_index = dwc3_gadget_ep_get_transfer_index(dep);
+	dwc3_gadget_ep_get_transfer_index(dep);
 
 	return 0;
 }
@@ -149,7 +149,7 @@ static int restore_eps(struct dwc3 *dwc)
 		if (!(dep->flags & DWC3_EP_ENABLED))
 			continue;
 
-		ret = __dwc3_gadget_ep_enable(dep, false, true);
+		ret = __dwc3_gadget_ep_enable(dep, true);
 		if (ret) {
 			dev_err(dwc->dev, "failed to enable %s\n", dep->name);
 			return ret;
@@ -211,13 +211,14 @@ static int restore_eps(struct dwc3 *dwc)
 				cmd = DWC3_DEPCMD_STARTTRANSFER |
 					DWC3_DEPCMD_PARAM(0);
 
-				dwc3_send_gadget_ep_cmd(dep, cmd, &params);
+				ret = dwc3_send_gadget_ep_cmd(dep, cmd,
+								&params);
+				if (ret < 0)
+					return ret;
 
-				dep->flags |= DWC3_EP_BUSY;
-				dep->resource_index =
-					dwc3_gadget_ep_get_transfer_index(dep);
+				dwc3_gadget_ep_get_transfer_index(dep);
 			} else {
-				ret = __dwc3_gadget_kick_transfer(dep, 0);
+				ret = __dwc3_gadget_kick_transfer(dep);
 				if (ret) {
 					dev_err(dwc->dev,
 						"%s: restart transfer failed\n",
@@ -250,7 +251,7 @@ static int restore_ep0(struct dwc3 *dwc)
 		if (!(dep->flags & DWC3_EP_ENABLED))
 			continue;
 
-		ret = __dwc3_gadget_ep_enable(dep, false, true);
+		ret = __dwc3_gadget_ep_enable(dep, true);
 		if (ret) {
 			dev_err(dwc->dev, "failed to enable %s\n", dep->name);
 			return ret;
@@ -340,8 +341,8 @@ void gadget_hibernation_interrupt(struct dwc3 *dwc)
 		if (!(dep->flags & DWC3_EP_ENABLED))
 			continue;
 
-		if (dep->flags & DWC3_EP_BUSY)
-			dwc3_stop_active_transfer(dwc, dep->number, false);
+		if (dep->flags & DWC3_EP_TRANSFER_STARTED)
+			dwc3_stop_active_transfer(dep, false, false);
 
 		save_endpoint_state(dep);
 	}
@@ -437,7 +438,10 @@ void gadget_wakeup_interrupt(struct dwc3 *dwc)
 	dwc3_simple_wakeup_capable(dwc->dev, false);
 
 	/* Initialize the core and restore the saved registers */
-	dwc3_core_init(dwc);
+	ret = dwc3_core_init(dwc);
+	if (ret)
+		goto err;
+
 	restore_regs(dwc);
 
 	/* ask controller to save the non-sticky registers */

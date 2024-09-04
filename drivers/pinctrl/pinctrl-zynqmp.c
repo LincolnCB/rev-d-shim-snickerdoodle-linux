@@ -9,8 +9,9 @@
  *  Chirag Parekh <chirag.parekh@xilinx.com>
  */
 
+#include <linux/module.h>
 #include <dt-bindings/pinctrl/pinctrl-zynqmp.h>
-#include <linux/firmware/xilinx/zynqmp/firmware.h>
+#include <linux/firmware/xlnx-zynqmp.h>
 #include <linux/init.h>
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
@@ -107,7 +108,6 @@ pin_config_item zynqmp_conf_items[ARRAY_SIZE(zynqmp_dt_params)] = {
 #endif
 
 static const struct zynqmp_eemi_ops *eemi_ops;
-static const struct pinctrl_pin_desc zynqmp_pins;
 static struct pinctrl_desc zynqmp_desc;
 
 /**
@@ -188,7 +188,7 @@ static int zynqmp_pinmux_request_pin(struct pinctrl_dev *pctldev,
 {
 	int ret;
 
-	if (!eemi_ops || !eemi_ops->pinctrl_request)
+	if (!eemi_ops->pinctrl_request)
 		return -ENOTSUPP;
 
 	ret = eemi_ops->pinctrl_request(pin);
@@ -275,7 +275,7 @@ static int zynqmp_pinmux_set_mux(struct pinctrl_dev *pctldev,
 	const struct zynqmp_pctrl_group *pgrp = &pctrl->groups[group];
 	int ret, i;
 
-	if (!eemi_ops || !eemi_ops->pinctrl_set_function)
+	if (!eemi_ops->pinctrl_set_function)
 		return -ENOTSUPP;
 
 	for (i = 0; i < pgrp->npins; i++) {
@@ -306,7 +306,7 @@ static int zynqmp_pinmux_release_pin(struct pinctrl_dev *pctldev,
 {
 	int ret;
 
-	if (!eemi_ops || !eemi_ops->pinctrl_release)
+	if (!eemi_ops->pinctrl_release)
 		return -ENOTSUPP;
 
 	ret = eemi_ops->pinctrl_release(pin);
@@ -346,7 +346,7 @@ static int zynqmp_pinconf_cfg_get(struct pinctrl_dev *pctldev,
 	int ret;
 	unsigned int arg = 0, param = pinconf_to_config_param(*config);
 
-	if (!eemi_ops || !eemi_ops->pinctrl_get_config)
+	if (!eemi_ops->pinctrl_get_config)
 		return -ENOTSUPP;
 
 	if (pin >= zynqmp_desc.npins)
@@ -418,11 +418,12 @@ static int zynqmp_pinconf_cfg_get(struct pinctrl_dev *pctldev,
 		}
 		break;
 	default:
-		return -ENOTSUPP;
+		ret = -ENOTSUPP;
+		break;
 	}
 
 	*config = pinconf_to_config_packed(param, arg);
-	return 0;
+	return ret;
 }
 
 /**
@@ -443,7 +444,7 @@ static int zynqmp_pinconf_cfg_set(struct pinctrl_dev *pctldev,
 {
 	int i, ret;
 
-	if (!eemi_ops || !eemi_ops->pinctrl_set_config)
+	if (!eemi_ops->pinctrl_set_config)
 		return -ENOTSUPP;
 
 	if (pin >= zynqmp_desc.npins)
@@ -669,7 +670,7 @@ static int zynqmp_pinctrl_prepare_func_groups(struct device *dev, u32 fid,
 {
 	u16 resp[NUM_GROUPS_PER_RESP] = {0};
 	const char **fgroups;
-	int ret, index, i;
+	int ret = 0, index, i;
 
 	fgroups = devm_kzalloc(dev, sizeof(*fgroups) * func->ngroups,
 			       GFP_KERNEL);
@@ -851,7 +852,7 @@ static int zynqmp_pinctrl_prepare_group_pins(struct device *dev,
 					     unsigned int ngroups)
 {
 	unsigned int pin;
-	int ret;
+	int ret = 0;
 
 	for (pin = 0; pin < zynqmp_desc.npins; pin++) {
 		ret = zynqmp_pinctrl_create_pin_groups(dev, groups, pin);
@@ -1005,7 +1006,10 @@ static int zynqmp_pinctrl_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	eemi_ops = zynqmp_pm_get_eemi_ops();
-	if (!eemi_ops || !eemi_ops->query_data) {
+	if (IS_ERR(eemi_ops))
+		return PTR_ERR(eemi_ops);
+
+	if (!eemi_ops->query_data) {
 		dev_err(&pdev->dev, "%s: Firmware interface not available\n",
 			__func__);
 		ret = -ENOTSUPP;
@@ -1064,8 +1068,4 @@ static struct platform_driver zynqmp_pinctrl_driver = {
 	.remove = zynqmp_pinctrl_remove,
 };
 
-static int __init zynqmp_pinctrl_init(void)
-{
-	return platform_driver_register(&zynqmp_pinctrl_driver);
-}
-arch_initcall(zynqmp_pinctrl_init);
+module_platform_driver(zynqmp_pinctrl_driver);

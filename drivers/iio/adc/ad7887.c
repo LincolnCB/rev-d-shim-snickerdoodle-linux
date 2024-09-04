@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * AD7887 SPI ADC driver
  *
  * Copyright 2010-2011 Analog Devices Inc.
- *
- * Licensed under the GPL-2.
  */
 
 #include <linux/device.h>
@@ -131,6 +130,8 @@ done:
 
 static const struct iio_buffer_setup_ops ad7887_ring_setup_ops = {
 	.preenable = &ad7887_ring_preenable,
+	.postenable = &iio_triggered_buffer_postenable,
+	.predisable = &iio_triggered_buffer_predisable,
 	.postdisable = &ad7887_ring_postdisable,
 };
 
@@ -227,7 +228,6 @@ static const struct ad7887_chip_info ad7887_chip_info_tbl[] = {
 
 static const struct iio_info ad7887_info = {
 	.read_raw = &ad7887_read_raw,
-	.driver_module = THIS_MODULE,
 };
 
 static int ad7887_probe(struct spi_device *spi)
@@ -314,8 +314,7 @@ static int ad7887_probe(struct spi_device *spi)
 	}
 
 	ret = iio_triggered_buffer_setup(indio_dev, &iio_pollfunc_store_time,
-			&ad7887_trigger_handler, &ad7887_ring_setup_ops
-			);
+			&ad7887_trigger_handler, &ad7887_ring_setup_ops);
 	if (ret)
 		goto error_disable_reg;
 
@@ -362,6 +361,6 @@ static struct spi_driver ad7887_driver = {
 };
 module_spi_driver(ad7887_driver);
 
-MODULE_AUTHOR("Michael Hennerich <hennerich@blackfin.uclinux.org>");
+MODULE_AUTHOR("Michael Hennerich <michael.hennerich@analog.com>");
 MODULE_DESCRIPTION("Analog Devices AD7887 ADC");
 MODULE_LICENSE("GPL v2");
